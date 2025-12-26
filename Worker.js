@@ -15,19 +15,18 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // --- 修改后的鉴权辅助函数 ---
+    // --- 鉴权辅助函数 ---
     const checkAuth = (req) => {
       const auth = req.headers.get("Authorization");
       
-      // 1.以此确保环境变量存在
+      // 1. 如果没有配置环境变量，直接禁止
       if (!env.ADMIN_KEY) return false;
-      
-      // 2. 将环境变量按逗号分割，并去除每个 Key 两端的空格
-      // 例如 "key1, key2" 变成 ["key1", "key2"]
+
+      // 2. 将环境变量按逗号分割成数组，并去除首尾空格
+      // 这样 "Key1, Key2" 就会变成 ["Key1", "Key2"]
       const validKeys = env.ADMIN_KEY.split(',').map(k => k.trim());
       
-      // 3. 检查前端发来的 auth 是否在这个数组里
-      // 注意：这里需要确保 auth 不为空
+      // 3. 检查前端发来的 auth 是否在这个数组中
       return auth && validKeys.includes(auth);
     };
 
