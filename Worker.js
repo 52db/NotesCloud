@@ -1,140 +1,76 @@
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    
-    // --- CORS 配置 (允许跨域) ---
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "*", 
+      "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS, DELETE",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
-    // 处理预检请求 (Browser Preflight)
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
+    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-    // --- 【核心修改】鉴权辅助函数 ---
-    const checkAuth = (req) => {
+    // --- 调试版鉴权函数 ---
+    const getDebugInfo = (req) => {
       const auth = req.headers.get("Authorization");
       
-      // 如果前端没发 Header，直接由后续逻辑拒绝
-      if (!auth) return false;
+      // 1. 获取原始变量
+      const rawKey = env.ADMIN_KEY;
+      const rawKeys = env.ADMIN_KEYS;
 
-      // 定义允许的 Key 列表
-      let allowedKeys = [];
-
-      // 1. 兼容原有逻辑：读取 ADMIN_KEY (单值)
-      if (env.ADMIN_KEY) {
-        // 确保去除首尾空格，防止复制粘贴带入空格
-        const oldKey = env.ADMIN_KEY.trim();
-        if (oldKey) allowedKeys.push(oldKey);
+      // 2. 生成白名单
+      let allowedList = [];
+      if (rawKey) allowedList.push(rawKey.trim());
+      if (rawKeys) {
+        // 同时尝试用 英文逗号 和 中文逗号 分割，以防万一
+        const splitKeys = rawKeys.replace(/，/g, ',').split(',');
+        allowedList = allowedList.concat(splitKeys.map(k => k.trim()).filter(k => k !== ""));
       }
 
-      // 2. 新增逻辑：读取 ADMIN_KEYS (逗号分隔的多值)
-      if (env.ADMIN_KEYS) {
-        const newKeys = env.ADMIN_KEYS.split(',').map(k => k.trim()).filter(k => k !== "");
-        allowedKeys = allowedKeys.concat(newKeys);
-      }
+      const receivedKey = auth ? auth.trim() : "null (未收到 Header)";
+      const isMatch = allowedList.includes(receivedKey);
 
-      // 3. 检查当前请求的 Key 是否在允许列表中
-      return allowedKeys.includes(auth);
-    };
-
-    // 通用响应辅助函数
-    const jsonResponse = (data, status = 200) => {
-      return new Response(JSON.stringify(data), {
-        status: status,
-        headers: {
-          "Content-Type": "application/json",
-          ...corsHeaders // 每个响应都带上 CORS 头
+      return {
+        success: isMatch,
+        debugMsg: {
+          message: "鉴权调试报告",
+          received_from_frontend: receivedKey, // 前端发过来的是什么
+          env_ADMIN_KEY: rawKey || "未读取到 (undefined)", // 变量1读取到了吗
+          env_ADMIN_KEYS: rawKeys || "未读取到 (undefined)", // 变量2读取到了吗
+          parsed_whitelist: allowedList, // 最终生成的白名单列表
+          compare_result: isMatch ? "通过" : "失败"
         }
-      });
+      };
     };
+
+    const jsonResponse = (data, status = 200) => new Response(JSON.stringify(data), {
+      status: status, headers: { "Content-Type": "application/json", ...corsHeaders }
+    });
 
     try {
-      // --- API 路由 ---
-
-      // 1. 保存笔记 (POST /api/save)
-      if (path === "/api/save" && request.method === "POST") {
-        if (!checkAuth(request)) return jsonResponse({ error: "Unauthorized" }, 401);
+      // 仅拦截 /api/save 用于测试
+      if (new URL(request.url).pathname === "/api/save" && request.method === "POST") {
+        const authCheck = getDebugInfo(request);
         
-        const body = await request.json();
-        const isShare = body.is_share ? 1 : 0;
-        const publicId = body.public_id || null;
-        
-        await env.DB.prepare(
-          "INSERT INTO notes (content, is_share, public_id) VALUES (?, ?, ?)"
-        ).bind(body.content, isShare, publicId).run();
-
-        return jsonResponse({ success: true });
-      }
-
-      // 2. 获取列表 (GET /api/list)
-      if (path === "/api/list" && request.method === "GET") {
-        if (!checkAuth(request)) return jsonResponse({ error: "Unauthorized" }, 401);
-
-        const { results } = await env.DB.prepare(
-          "SELECT id, content, created_at FROM notes WHERE is_share = 0 ORDER BY id DESC"
-        ).all();
-
-        return jsonResponse(results);
-      }
-
-      // 3. 删除笔记 (POST /api/delete)
-      if (path === "/api/delete" && request.method === "POST") {
-        if (!checkAuth(request)) return jsonResponse({ error: "Unauthorized" }, 401);
-        
-        const body = await request.json();
-        await env.DB.prepare("DELETE FROM notes WHERE id = ?").bind(body.id).run();
-        
-        return jsonResponse({ success: true });
-      }
-
-      // 4. AI 总结 (POST /api/ai-sum)
-      if (path === "/api/ai-sum" && request.method === "POST") {
-        if (!checkAuth(request)) return jsonResponse({ error: "Unauthorized" }, 401);
-
-        const body = await request.json();
-        const text = body.text;
-
-        // 调用 Workers AI (使用 Qwen 1.5)
-        const aiRes = await env.AI.run('@cf/qwen/qwen1.5-7b-chat-awq', {
-          messages: [
-            { role: "system", content: "你是一个专业的笔记助手。请用中文简明扼要地总结用户的笔记内容，提取核心要点。" },
-            { role: "user", content: text }
-          ]
-        });
-
-        return jsonResponse({ summary: aiRes.response });
-      }
-
-      // 5. 阅后即焚获取 (GET /api/share/:id)
-      const shareMatch = path.match(/^\/api\/share\/([a-zA-Z0-9]+)$/);
-      if (shareMatch && request.method === "GET") {
-        const shareId = shareMatch[1];
-        
-        const note = await env.DB.prepare(
-          "SELECT * FROM notes WHERE public_id = ? AND is_share = 1"
-        ).bind(shareId).first();
-
-        if (!note) {
-          return jsonResponse({ error: "Not found or expired" }, 404);
+        // 如果失败，返回详细的调试信息
+        if (!authCheck.success) {
+          return jsonResponse({ 
+            error: "DEBUG_MODE_FAIL", 
+            details: authCheck.debugMsg 
+          }, 401);
         }
-
-        // 读取后立即物理删除
-        await env.DB.prepare("DELETE FROM notes WHERE id = ?").bind(note.id).run();
-
-        return jsonResponse({ content: note.content });
+        
+        // ... 如果成功，继续原来的保存逻辑 (此处省略，仅为了测试连接) ...
+        // 为了安全起见，调试模式下即使成功也不真正写入数据库，只返回成功消息
+        return jsonResponse({ success: true, msg: "调试模式：鉴权通过！Key 配置正确。" });
       }
 
-      // 默认路由
-      if (path === "/") {
-        return new Response("CloudNotes API is running.", { status: 200, headers: corsHeaders });
+      // 所有的其他请求，都先返回调试信息，方便您直接在浏览器访问 /api/list 查看
+      if (new URL(request.url).pathname === "/api/list") {
+          const authCheck = getDebugInfo(request);
+          if (!authCheck.success) return jsonResponse({ error: "DEBUG_MODE_FAIL", details: authCheck.debugMsg }, 401);
+          return jsonResponse([{id:1, content: "调试通过", created_at: Date.now()}]); // 假数据
       }
-
-      return jsonResponse({ error: "Not Found" }, 404);
+      
+      return new Response("Debug Mode Active", { headers: corsHeaders });
 
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
