@@ -113,9 +113,9 @@
             <div class="space-y-4">
                 <div class="space-y-1.5">
                     <label class="text-[11px] uppercase tracking-wider text-slate-400 font-bold ml-1">API Endpoint</label>
-                    <input id="setApi" type="url" placeholder="例如 https://api.xxx.workers.dev" 
+                    <input id="setApi" type="url" placeholder="https://..." 
                         class="w-full bg-white border border-slate-200 p-4 rounded-xl outline-none input-ios text-slate-700 font-medium placeholder:text-slate-400">
-                    <p class="text-[10px] text-slate-400 ml-1">若前后端同域，请留空。若分离部署，请输入 Worker 完整地址。</p>
+                    <p class="text-[10px] text-slate-400 ml-1">请输入完整的 Worker 地址（包含 https://）</p>
                 </div>
                 <div class="space-y-1.5">
                     <label class="text-[11px] uppercase tracking-wider text-slate-400 font-bold ml-1">Admin Key</label>
@@ -138,7 +138,7 @@
         let storedApi = localStorage.getItem('cf_notes_api') || "";
         let ADMIN_KEY = localStorage.getItem('cf_notes_key') || "";
 
-        // 去除末尾斜杠，防止路径拼接错误
+        // 去除末尾斜杠
         if (storedApi.endsWith('/')) {
             storedApi = storedApi.slice(0, -1);
         }
@@ -258,7 +258,8 @@
             const modal = document.getElementById('settingsModal');
             modal.classList.remove('hidden');
             setTimeout(() => {
-                document.getElementById('setApi').value = storedApi;
+                // 修改点：如果没有存储过 API，默认填入 https://
+                document.getElementById('setApi').value = storedApi || "https://";
                 document.getElementById('setKey').value = ADMIN_KEY;
             }, 10);
         }
@@ -300,7 +301,6 @@
             listDiv.innerHTML = '<div class="text-center py-8 text-slate-400 text-sm animate-pulse">正在同步并解密...</div>';
             
             try {
-                // 如果 API_URL 为空，fetch 请求相对路径；如果配置了绝对路径，则请求该路径
                 const res = await fetch(`${API_URL}/api/list`, { headers: { 'Authorization': ADMIN_KEY } });
                 const notes = await res.json(); 
                 listDiv.innerHTML = "";
@@ -311,7 +311,7 @@
 
                 for (let n of notes) {
                     const clearText = await decrypt(n.content, pw);
-                    if (!clearText) continue; // 密码不匹配跳过
+                    if (!clearText) continue; 
                     
                     visibleCount++;
                     const card = document.createElement('div');
@@ -331,7 +331,7 @@
                     const footerHtml = `
                         <div class="pt-3 border-t border-slate-50 flex items-center justify-between gap-2 mt-auto">
                             <button onclick="doShareCopy('${n.content}')" class="flex-1 py-2 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold active:bg-blue-100 transition">
-                                📤 分享
+                                📤 阅后即焚
                             </button>
                             <button class="export-btn flex-1 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold active:bg-emerald-100 transition">
                                 💾 备份
