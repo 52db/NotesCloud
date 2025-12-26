@@ -32,7 +32,6 @@
             -webkit-tap-highlight-color: transparent;
             -webkit-font-smoothing: antialiased;
             overflow-x: hidden;
-            /* 使用 dvh 解决移动端地址栏遮挡问题 */
             min-height: 100dvh;
             padding-top: max(20px, var(--safe-top)); 
         }
@@ -44,9 +43,9 @@
             background: radial-gradient(circle, rgba(0,122,255,0.12) 0%, rgba(0,0,0,0) 70%);
             filter: blur(60px); z-index: -1;
             animation: float 10s ease-in-out infinite alternate;
+            pointer-events: none; /* 性能优化：避免背景干扰点击 */
         }
-        @keyframes float { 0% { transform: translate(0, 0);
-            } 100% { transform: translate(30px, 30px); } }
+        @keyframes float { 0% { transform: translate(0, 0); } 100% { transform: translate(30px, 30px); } }
 
         /* Apple 风格组件 */
         .glass-panel {
@@ -60,7 +59,13 @@
         /* 按钮触感优化 */
         .btn-ios {
             transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1), opacity 0.2s, background-color 0.2s;
-            touch-action: manipulation; /* 防止双击缩放延迟 */
+            touch-action: manipulation;
+            user-select: none; /* 移动端防止长按选中文字 */
+            -webkit-user-select: none;
+        }
+        /* 仅在支持 hover 的设备（鼠标）上显示 hover 效果，避免移动端点击后状态残留 */
+        @media (hover: hover) {
+            .btn-ios:hover { opacity: 0.85; }
         }
         .btn-ios:active {
             transform: scale(0.96);
@@ -69,8 +74,7 @@
 
         /* 输入框优化 */
         .input-ios {
-            font-size: 16px;
-            /* 防止 iOS 自动放大 */
+            font-size: 16px; /* 防止 iOS 自动放大 */
             transition: all 0.3s ease;
             appearance: none;
         }
@@ -84,12 +88,7 @@
         }
 
         /* 底部抽屉动画 */
-        @keyframes slideUp {
-            from { transform: translateY(100%);
-            }
-            to { transform: translateY(0);
-            }
-        }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .drawer-enter {
             animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
@@ -104,10 +103,9 @@
             -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent);
         }
 
-        ::-webkit-scrollbar { width: 0px; background: transparent;
-        }
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
 
-        /* 回到顶部按钮样式 */
+        /* 回到顶部按钮 */
         .back-to-top {
             position: fixed;
             bottom: calc(20px + var(--safe-bottom));
@@ -129,6 +127,7 @@
             transform: translateY(20px) scale(0.9);
             pointer-events: none;
             transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            user-select: none; -webkit-user-select: none;
         }
         .back-to-top.visible {
             opacity: 1;
@@ -138,6 +137,19 @@
         .back-to-top:active {
             transform: scale(0.9);
             background: #f0f0f0;
+        }
+        
+        /* 模式切换辅助 */
+        .mode-section { transition: all 0.3s ease-in-out; }
+        .hidden-mode { display: none !important; opacity: 0; }
+        
+        /* 加载更多按钮 */
+        .load-more-btn {
+            margin: 20px auto;
+            display: block;
+            font-size: 13px;
+            color: #94a3b8;
+            padding: 10px 20px;
         }
     </style>
 </head>
@@ -188,7 +200,7 @@
     </div>
 
     <script>
-        // --- 工具函数：HTML 转义（防止 XSS） ---
+        // --- 核心工具：防 XSS 转义 ---
         function escapeHtml(text) {
             if (text == null) return "";
             return String(text)
@@ -199,6 +211,13 @@
                 .replace(/'/g, "&#039;");
         }
 
+        // --- 性能工具：让出主线程 (防止 UI 假死) ---
+        function yieldToMain() {
+            return new Promise(resolve => {
+                setTimeout(resolve, 0);
+            });
+        }
+
         // --- 核心配置 ---
         const urlParams = new URLSearchParams(window.location.search);
         const shareId = urlParams.get('share');
@@ -206,14 +225,17 @@
         let storedApi = "";
         let ADMIN_KEY = "";
         
-        // [修复] Storage 访问添加 try-catch 保护
+        // [安全] 防御性 Storage 读取
         try {
             storedApi = localStorage.getItem('cf_notes_api') || "";
             ADMIN_KEY = localStorage.getItem('cf_notes_key') || "";
         } catch(e) { console.warn("Storage access restricted"); }
 
-        // [安全] 闭包缓存，防止全局污染
+        // [优化] 分页控制变量
         let _PRIVATE_MEM_CACHE = [];
+        let _RENDERED_COUNT = 0;
+        const _PAGE_SIZE = 20;
+
         if (storedApi.endsWith('/')) {
             storedApi = storedApi.slice(0, -1);
         }
@@ -221,7 +243,7 @@
         let API_URL = storedApi;
         const app = document.getElementById('app');
 
-        // --- 加密模块 (PBKDF2 + AES-GCM) ---
+        // --- 加密模块 (Web Crypto API) ---
         async function getK(pw, salt) {
             const enc = new TextEncoder();
             const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(pw), { name: "PBKDF2" }, false, ["deriveKey"]);
@@ -250,24 +272,27 @@
             } catch (e) { return null; }
         }
 
-        // --- 视图逻辑 ---
+        // --- 视图初始化 ---
 
         function init() {
             if (shareId) renderShareView();
             else renderMainView();
             
-            // 监听滚动以显示回到顶部按钮
+            // [优化] 滚动事件节流 (RequestAnimationFrame)
+            let ticking = false;
             window.addEventListener('scroll', () => {
-                const btn = document.getElementById('backToTop');
-                if (window.scrollY > 300) {
-                    btn.classList.add('visible');
-                } else {
-                    btn.classList.remove('visible');
+                if (!ticking) {
+                    window.requestAnimationFrame(() => {
+                        const btn = document.getElementById('backToTop');
+                        if (window.scrollY > 300) btn.classList.add('visible');
+                        else btn.classList.remove('visible');
+                        ticking = false;
+                    });
+                    ticking = true;
                 }
             });
         }
 
-        // 回到顶部功能
         function scrollToTop() {
             if(navigator.vibrate) navigator.vibrate(5);
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -281,36 +306,43 @@
                         <h1 class="text-2xl font-bold text-slate-900 tracking-tight">CloudNotes</h1>
                         <p class="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Encrypted Vault</p>
                     </div>
-                    <button onclick="configUrl()" class="w-10 h-10 rounded-full bg-white/80 backdrop-blur text-slate-500 shadow-sm border border-white flex items-center justify-center btn-ios 
-                    active:bg-slate-100">
-                        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 
-                        2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                    </button>
+                    <div class="flex gap-2">
+                         <button onclick="toggleWriteMode()" class="w-10 h-10 rounded-full bg-white/80 backdrop-blur text-slate-500 shadow-sm border border-white flex items-center justify-center btn-ios active:bg-slate-100">
+                           🔑
+                        </button>
+                        <button onclick="configUrl()" class="w-10 h-10 rounded-full bg-white/80 backdrop-blur text-slate-500 shadow-sm border border-white flex items-center justify-center btn-ios active:bg-slate-100">
+                            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 
+                            2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </button>
+                    </div>
                 </header>
 
                 <main class="glass-panel p-5 rounded-[1.8rem] space-y-4 shadow-sm">
                     <input id="mainPw" type="password" placeholder="输入主密钥 (Passkey)" autocomplete="current-password"
                         class="w-full bg-white/60 border border-white p-4 rounded-xl outline-none input-ios text-slate-800 placeholder:text-slate-400 transition-colors focus:bg-white focus:ring-2 focus:ring-blue-500/10">
                     
-                    <textarea id="noteInput" placeholder="在此输入需要加密的内容..." 
-                        class="w-full bg-white/60 border border-white p-4 h-36 rounded-xl outline-none input-ios resize-none text-slate-800 leading-relaxed placeholder:text-slate-400 transition-colors focus:bg-white focus:ring-2 focus:ring-blue-500/10"></textarea>
-                    
-                    <div class="grid grid-cols-2 gap-3">
-                        <button onclick="doSave()" class="bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-lg shadow-slate-900/10 btn-ios flex items-center justify-center gap-2 active:scale-95">
-                            <span>🔒</span> 加密存储
-                        </button>
-                        <button onclick="doAI()" class="bg-white text-indigo-600 border border-indigo-100 py-4 rounded-xl font-bold text-sm btn-ios flex items-center justify-center gap-2 active:bg-indigo-50 active:scale-95">
-                            <span>✨</span> AI 总结
+                    <div id="writeModeArea" class="hidden-mode space-y-4">
+                        <textarea id="noteInput" placeholder="在此输入需要加密的内容..." 
+                            class="w-full bg-white/60 border border-white p-4 h-36 rounded-xl outline-none input-ios resize-none text-slate-800 leading-relaxed placeholder:text-slate-400 transition-colors focus:bg-white focus:ring-2 focus:ring-blue-500/10"></textarea>
+                        
+                        <div class="grid grid-cols-2 gap-3">
+                            <button onclick="doSave()" class="bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-lg shadow-slate-900/10 btn-ios flex items-center justify-center gap-2 active:scale-95">
+                                <span>🔒</span> 加密存储
+                            </button>
+                            <button onclick="doAI()" class="bg-white text-indigo-600 border border-indigo-100 py-4 rounded-xl font-bold text-sm btn-ios flex items-center justify-center gap-2 active:bg-indigo-50 active:scale-95">
+                                <span>✨</span> AI 总结
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="readModeArea" class="mode-section pt-2">
+                        <button onclick="loadList()" id="decryptBtn" class="w-full bg-blue-500/10 text-blue-600 border border-blue-100 py-4 rounded-xl font-bold text-sm btn-ios flex items-center justify-center gap-2 active:bg-blue-100 active:scale-95">
+                            <span>🔓</span> 解密查看笔记
                         </button>
                     </div>
                 </main>
 
                 <section class="space-y-4 pt-2">
-                    <div class="flex justify-between items-center px-2">
-                        <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Notes Vault</h2>
-                        <button onclick="loadList()" class="bg-blue-50 px-3 py-1.5 rounded-lg text-[#007AFF] text-xs font-bold btn-ios active:bg-blue-100 active:scale-95">解密</button>
-                    </div>
-
                     <div id="searchBar" class="hidden px-1 animate-in slide-in-from-top-2 duration-300">
                         <div class="relative group">
                             <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
@@ -328,7 +360,7 @@
                     <div id="notesList" class="grid gap-3 pb-8">
                         <div class="text-center py-12">
                             <div class="inline-block p-4 rounded-full bg-white/50 mb-2 text-2xl">☁️</div>
-                            <p class="text-slate-400 text-sm">输入主密钥后解密<br>仅显示匹配的加密笔记</p>
+                            <p class="text-slate-400 text-sm">输入主密钥后点击解密<br>查看您的安全笔记</p>
                         </div>
                     </div>
                 </section>
@@ -362,6 +394,20 @@
         }
 
         /* --- 交互逻辑 --- */
+
+        function toggleWriteMode() {
+            const writeArea = document.getElementById('writeModeArea');
+            const readArea = document.getElementById('readModeArea');
+            
+            if (writeArea.classList.contains('hidden-mode')) {
+                writeArea.classList.remove('hidden-mode');
+                readArea.classList.add('hidden-mode');
+                if(navigator.vibrate) navigator.vibrate(10);
+            } else {
+                writeArea.classList.add('hidden-mode');
+                readArea.classList.remove('hidden-mode');
+            }
+        }
         
         function configUrl() {
             const modal = document.getElementById('settingsModal');
@@ -390,7 +436,6 @@
             const text = document.getElementById('noteInput').value;
             const pw = document.getElementById('mainPw').value;
             if (!text || !pw) return alert("请填写内容和密码");
-            // 简单震动反馈
             if(navigator.vibrate) navigator.vibrate(10);
             try {
                 const cipher = await encrypt(text, pw);
@@ -401,11 +446,10 @@
                 if (res.ok) { 
                     alert("✅ 已加密存入");
                     document.getElementById('noteInput').value = ""; 
+                    toggleWriteMode(); // 自动切回列表
                     loadList(); 
-                } else { alert("❌ 保存失败：请检查 Key 或网络");
-                }
-            } catch (e) { alert("❌ 网络异常：" + e.message);
-            }
+                } else { alert("❌ 保存失败：请检查 Key 或网络"); }
+            } catch (e) { alert("❌ 网络异常：" + e.message); }
         }
 
         async function loadList() {
@@ -414,42 +458,68 @@
             
             const listDiv = document.getElementById('notesList');
             const searchBar = document.getElementById('searchBar');
-            // 触觉反馈
+            const decryptBtn = document.getElementById('decryptBtn');
+            
             if(navigator.vibrate) navigator.vibrate(5);
-            listDiv.innerHTML = '<div class="text-center py-8 text-slate-400 text-sm animate-pulse">正在同步并解密...</div>';
+            
+            // 状态反馈
+            const originalBtnText = decryptBtn.innerHTML;
+            decryptBtn.innerHTML = `<span>⏳</span> 处理中...`;
+            decryptBtn.disabled = true;
+            listDiv.innerHTML = '<div class="text-center py-8 text-slate-400 text-sm animate-pulse">正在下载数据...</div>';
             
             try {
                 const res = await fetch(`${API_URL}/api/list`, { headers: { 'Authorization': ADMIN_KEY } });
                 const notes = await res.json(); 
                 
                 if (notes.error) throw new Error(notes.error);
-                // [安全] 清空并重建内存索引，不使用全局变量
+                
+                listDiv.innerHTML = '<div class="text-center py-8 text-slate-400 text-sm animate-pulse">正在解密...</div>';
+                
+                // [优化] 清空缓存
                 _PRIVATE_MEM_CACHE = [];
+                _RENDERED_COUNT = 0;
+
+                // [性能关键] 分片解密，防止主线程卡死
+                let count = 0;
                 for (let n of notes) {
                     const clearText = await decrypt(n.content, pw);
                     if (clearText) {
                         _PRIVATE_MEM_CACHE.push({ ...n, clearText: clearText });
                     }
+                    count++;
+                    // 每解密 10 条就让出主线程，让 UI 有机会渲染 Loading 动画
+                    if (count % 10 === 0) await yieldToMain();
                 }
 
-                renderNotesToDom(_PRIVATE_MEM_CACHE);
-                if (_PRIVATE_MEM_CACHE.length > 0) {
-                    searchBar.classList.remove('hidden');
-                } else {
-                    searchBar.classList.add('hidden');
-                }
+                // 初始渲染前 20 条
+                renderNotesToDom(_PRIVATE_MEM_CACHE.slice(0, _PAGE_SIZE));
+                _RENDERED_COUNT = _PAGE_SIZE;
+
+                // 显示/隐藏搜索栏
+                if (_PRIVATE_MEM_CACHE.length > 0) searchBar.classList.remove('hidden');
+                else searchBar.classList.add('hidden');
 
             } catch (e) { 
                 console.error(e);
                 listDiv.innerHTML = '<div class="text-center py-8 text-red-400 text-sm">连接失败：' + escapeHtml(e.message) + '</div>';
+            } finally {
+                decryptBtn.innerHTML = originalBtnText;
+                decryptBtn.disabled = false;
             }
         }
 
-        function renderNotesToDom(notesArray) {
+        // [优化] 支持追加渲染 (Show More)
+        function renderNotesToDom(notesArray, append = false) {
             const listDiv = document.getElementById('notesList');
-            listDiv.innerHTML = "";
             
-            if (notesArray.length === 0) {
+            if (!append) listDiv.innerHTML = "";
+            
+            // 移除旧的“加载更多”按钮
+            const oldMoreBtn = document.getElementById('loadMoreBtn');
+            if (oldMoreBtn) oldMoreBtn.remove();
+
+            if (notesArray.length === 0 && !append) {
                 listDiv.innerHTML = `
                         <div class="text-center py-12 space-y-2">
                             <div class="text-3xl">📭</div>
@@ -458,14 +528,13 @@
                 return;
             }
 
+            // 渲染卡片
+            const fragment = document.createDocumentFragment();
             notesArray.forEach(n => {
                 const card = document.createElement('div');
                 card.className = "bg-white p-5 rounded-[1.2rem] shadow-sm border border-slate-100 flex flex-col gap-3 relative overflow-hidden animate-in fade-in zoom-in duration-300 group";
                 
-                // 判断内容是否过长 (超过150字 或 超过4行)
                 const isLong = n.clearText.length > 150 || (n.clearText.match(/\n/g) || []).length > 3;
-                
-                // [安全] 使用 escapeHtml 转义 ID 和时间
                 const safeId = escapeHtml(n.id);
                 const safeDate = escapeHtml(new Date(n.created_at).toLocaleDateString() + ' ' + new Date(n.created_at).toLocaleTimeString().slice(0,5));
 
@@ -476,12 +545,10 @@
                     </div>
                 `;
                
-                // [安全] 使用 textContent 防止 XSS
                 const contentWrapper = document.createElement('div');
                 
-                // [新增] 如果内容过长，在内容上方添加一个隐藏的“收起”按钮
                 if (isLong) {
-                    const topBtnHtml = `<button onclick="toggleExpand(${safeId})" id="btn-top-${safeId}" class="mb-2 text-[11px] font-bold text-[#007AFF] hover:opacity-70 focus:outline-none flex items-center gap-1 active:opacity-50 transition-opacity hidden w-full justify-start">收起 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="transform: rotate(180deg)"><path d="M6 9l6 6 6-6"/></svg></button>`;
+                    const topBtnHtml = `<button onclick="toggleExpand(${safeId})" id="btn-top-${safeId}" class="mb-2 text-[11px] font-bold text-[#007AFF] hover:opacity-70 focus:outline-none flex items-center gap-1 active:opacity-50 transition-opacity hidden w-full justify-start btn-ios">收起 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="transform: rotate(180deg)"><path d="M6 9l6 6 6-6"/></svg></button>`;
                     contentWrapper.insertAdjacentHTML('beforeend', topBtnHtml);
                 }
 
@@ -491,17 +558,16 @@
                 contentDiv.textContent = n.clearText; 
 
                 contentWrapper.appendChild(contentDiv);
-                // 展开按钮
+                
                 if (isLong) {
-                    const btnHtml = `<button onclick="toggleExpand(${safeId})" id="btn-${safeId}" class="mt-2 text-[11px] font-bold text-[#007AFF] hover:opacity-70 focus:outline-none flex items-center gap-1 active:opacity-50 transition-opacity">展开全部 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg></button>`;
+                    const btnHtml = `<button onclick="toggleExpand(${safeId})" id="btn-${safeId}" class="mt-2 text-[11px] font-bold text-[#007AFF] hover:opacity-70 focus:outline-none flex items-center gap-1 active:opacity-50 transition-opacity btn-ios">展开全部 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg></button>`;
                     contentWrapper.insertAdjacentHTML('beforeend', btnHtml);
                 }
 
-                // [安全修复] 传递 ID 而不是 密文(content) 到 HTML 属性中，防止 XSS 和 属性截断
                 const footerHtml = `
                     <div class="pt-3 border-t border-slate-50 flex items-center justify-between gap-2 mt-auto">
                         <button onclick="doShareCopy(${safeId})" class="flex-1 py-2.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold active:bg-blue-100 active:scale-95 btn-ios transition">
-                            📤 阅后即焚
+                            📤 分享
                         </button>
                         <button class="export-btn flex-1 py-2.5 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold active:bg-emerald-100 active:scale-95 btn-ios transition">
                             💾 备份
@@ -514,23 +580,42 @@
                 card.innerHTML = headerHtml;
                 card.appendChild(contentWrapper);
                 card.insertAdjacentHTML('beforeend', footerHtml);
-                
                 card.querySelector('.export-btn').onclick = () => doExport(n.clearText, n.id);
-                listDiv.appendChild(card);
+                fragment.appendChild(card);
             });
+            listDiv.appendChild(fragment);
+
+            // [性能] 如果还有更多数据，显示“加载更多”按钮
+            // 只有在非搜索模式下才分页
+            const isSearchMode = document.getElementById('searchInput').value.length > 0;
+            if (!isSearchMode && _RENDERED_COUNT < _PRIVATE_MEM_CACHE.length) {
+                const moreBtn = document.createElement('button');
+                moreBtn.id = 'loadMoreBtn';
+                moreBtn.className = 'load-more-btn btn-ios';
+                moreBtn.innerText = '加载更多...';
+                moreBtn.onclick = loadMoreNotes;
+                listDiv.appendChild(moreBtn);
+            }
         }
 
-        // 本地搜索逻辑
+        function loadMoreNotes() {
+            const nextBatch = _PRIVATE_MEM_CACHE.slice(_RENDERED_COUNT, _RENDERED_COUNT + _PAGE_SIZE);
+            if (nextBatch.length > 0) {
+                renderNotesToDom(nextBatch, true);
+                _RENDERED_COUNT += nextBatch.length;
+            }
+        }
+
         function doSearch() {
             const input = document.getElementById('searchInput');
             const clearBtn = document.getElementById('clearSearchBtn');
             const query = input.value.toLowerCase();
             
-            // 控制清除按钮显示
             if (query.length > 0) clearBtn.classList.remove('hidden');
             else clearBtn.classList.add('hidden');
 
             const filtered = _PRIVATE_MEM_CACHE.filter(n => n.clearText.toLowerCase().includes(query));
+            // 搜索结果不分页，直接全部显示（通常结果不会太多）
             renderNotesToDom(filtered);
         }
 
@@ -538,14 +623,16 @@
             const input = document.getElementById('searchInput');
             input.value = "";
             input.focus();
-            doSearch();
+            // 清除搜索恢复默认分页视图
+            _RENDERED_COUNT = 0; 
+            renderNotesToDom([], false); // 清空
+            loadMoreNotes(); // 重新加载第一页
         }
 
-        // 折叠/展开逻辑 [优化：同步顶部按钮状态]
+        // 折叠/展开逻辑
         function toggleExpand(id) {
             const contentDiv = document.getElementById(`content-${id}`);
             const btn = document.getElementById(`btn-${id}`);
-            // [新增] 获取顶部按钮
             const btnTop = document.getElementById(`btn-top-${id}`);
             
             if (contentDiv.classList.contains('line-clamp-custom')) {
@@ -554,7 +641,6 @@
                 contentDiv.style.maskImage = 'none';
                 contentDiv.style.webkitMaskImage = 'none';
                 btn.innerHTML = `收起 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="transform: rotate(180deg)"><path d="M6 9l6 6 6-6"/></svg>`;
-                // [新增] 显示顶部按钮
                 if(btnTop) btnTop.classList.remove('hidden');
             } else {
                 // 收起
@@ -562,10 +648,7 @@
                 contentDiv.style.maskImage = '';
                 contentDiv.style.webkitMaskImage = '';
                 btn.innerHTML = `展开全部 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>`;
-                // [新增] 隐藏顶部按钮
                 if(btnTop) btnTop.classList.add('hidden');
-
-                // [优化] 收起时平滑滚动回卡片顶部，防止长文收起后视线丢失
                 const card = btn.closest('.bg-white');
                 if (card) {
                     const offset = card.getBoundingClientRect().top + window.pageYOffset - 100;
@@ -574,13 +657,10 @@
             }
         }
 
-        // [安全修复] 现在通过 ID 查找内容，而不是从 HTML 属性中读取密文
         async function doShareCopy(id) {
-            // 在内存缓存中查找对应的笔记
             const note = _PRIVATE_MEM_CACHE.find(n => n.id == id);
             if (!note) return alert("笔记未找到");
             const cipher = note.content;
-
             const pid = Math.random().toString(36).substring(2, 12);
             if(navigator.vibrate) navigator.vibrate(10);
             try {
@@ -596,8 +676,7 @@
                 } else {
                     prompt("🔥 阅后即焚链接：", fullUrl);
                 }
-            } catch (e) { alert("生成失败");
-            }
+            } catch (e) { alert("生成失败"); }
         }
 
         function doExport(text, id) {
@@ -615,22 +694,21 @@
                 method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': ADMIN_KEY },
                 body: JSON.stringify({ id: id })
             });
+            // 删除后重新加载，但要保持当前列表状态略复杂，这里简单重载
             loadList();
         }
 
         async function doAI() {
             const text = document.getElementById('noteInput').value;
             if (!text) return alert("笔记为空");
-            if(!confirm("⚠️ 隐私警告：\nAI总结需将【明文内容】发送至服务器。是否继续？")) return;
+            if(!confirm("⚠️ 隐私警告：\nAI 总结需将前 1000 字符【明文】发送至服务器。是否继续？")) return;
 
             const btn = event.target; 
             const oldHtml = btn.innerHTML;
             btn.innerHTML = `<span class="animate-spin inline-block">⏳</span>`; btn.disabled = true;
             
             try {
-                // [修改] 添加提示词前缀，强制 AI 使用中文
                 const prompt = "请用中文总结以下内容：\n" + text.substring(0, 1000);
-                
                 const res = await fetch(`${API_URL}/api/ai-sum`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': ADMIN_KEY },
                     body: JSON.stringify({ text: prompt })
@@ -639,9 +717,10 @@
                 document.getElementById('noteInput').value += `\n\n--- AI 摘要 ---\n${data.summary}`;
                 if(navigator.vibrate) navigator.vibrate(20);
             } catch(e) { alert("AI 服务出错或网络不可达");
-            } 
-            finally { btn.innerHTML = oldHtml;
-            btn.disabled = false; }
+            } finally { 
+                btn.innerHTML = oldHtml;
+                btn.disabled = false; 
+            }
         }
 
         async function doUnlockShare() {
@@ -649,7 +728,6 @@
             const resDiv = document.getElementById('shareResult');
             const btn = document.getElementById('unlockBtn');
             try {
-                // [安全修复] 对 shareId 进行编码，防止 URL 注入
                 const res = await fetch(`${API_URL}/api/share/${encodeURIComponent(shareId)}`);
                 if (!res.ok) return alert("链接已失效或网络错误");
                 const data = await res.json(); 
