@@ -308,7 +308,7 @@
                 <section class="space-y-4 pt-2">
                     <div class="flex justify-between items-center px-2">
                         <h2 class="text-xs font-bold uppercase tracking-widest text-slate-400">Notes Vault</h2>
-                        <button onclick="loadList()" class="bg-blue-50 px-3 py-1.5 rounded-lg text-[#007AFF] text-xs font-bold btn-ios active:bg-blue-100 active:scale-95">刷新 / 搜索</button>
+                        <button onclick="loadList()" class="bg-blue-50 px-3 py-1.5 rounded-lg text-[#007AFF] text-xs font-bold btn-ios active:bg-blue-100 active:scale-95">解密</button>
                     </div>
 
                     <div id="searchBar" class="hidden px-1 animate-in slide-in-from-top-2 duration-300">
@@ -328,8 +328,7 @@
                     <div id="notesList" class="grid gap-3 pb-8">
                         <div class="text-center py-12">
                             <div class="inline-block p-4 rounded-full bg-white/50 mb-2 text-2xl">☁️</div>
-                            <p class="text-slate-400 text-sm">输入主密钥后刷新<br>仅显示匹配的加密笔记</p>
-                        </div>
+                                     <p class="text-slate-400 text-s>输入主密钥后解密<br>仅显示匹配的加密笔记</p>                </div>
                     </div>
                 </section>
             </div>
@@ -494,7 +493,7 @@
                 const footerHtml = `
                     <div class="pt-3 border-t border-slate-50 flex items-center justify-between gap-2 mt-auto">
                         <button onclick="doShareCopy(${safeId})" class="flex-1 py-2.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold active:bg-blue-100 active:scale-95 btn-ios transition">
-                            📤 分享
+                            📤 阅后即焚
                         </button>
                         <button class="export-btn flex-1 py-2.5 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold active:bg-emerald-100 active:scale-95 btn-ios transition">
                             💾 备份
