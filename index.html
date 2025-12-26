@@ -6,7 +6,6 @@
     <title>CloudNotes</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="format-detection" content="telephone=no">
     <meta name="theme-color" content="#F5F5F7">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -37,7 +36,6 @@
 
 <body class="selection:bg-blue-500/20 selection:text-blue-700 flex flex-col">
     <div class="ambient-light"></div>
-
     <div id="app" class="flex-1 w-full max-w-4xl mx-auto px-4 md:px-6 py-4 safe-pb relative z-10 flex flex-col"></div>
 
     <button id="backToTop" onclick="scrollToTop()" class="back-to-top" aria-label="回到顶部">
@@ -56,7 +54,7 @@
                 <div class="space-y-1.5">
                     <label class="text-[11px] uppercase tracking-wider text-slate-400 font-bold ml-1">API Endpoint</label>
                     <input id="setApi" type="url" placeholder="https://..." inputmode="url" class="w-full bg-white border border-slate-200 p-4 rounded-xl outline-none input-ios text-slate-700 font-medium placeholder:text-slate-400">
-                    <p class="text-[10px] text-slate-400 ml-1">请输入完整的 Worker 地址（包含 https://）</p>
+                    <p class="text-[10px] text-slate-400 ml-1">请输入完整的 Worker 地址</p>
                 </div>
                 <div class="space-y-1.5">
                     <label class="text-[11px] uppercase tracking-wider text-slate-400 font-bold ml-1">Admin Key</label>
@@ -71,7 +69,7 @@
     </div>
 
     <script>
-        // Utilities
+        // --- Utilities & Config ---
         const vibrate = (pattern) => navigator.vibrate && navigator.vibrate(pattern);
         function escapeHtml(text) {
             if (text == null) return "";
@@ -79,7 +77,6 @@
         }
         function yieldToMain() { return new Promise(resolve => setTimeout(resolve, 0)); }
 
-        // Configuration & State
         const urlParams = new URLSearchParams(window.location.search);
         const shareId = urlParams.get('share');
         let storedApi = "";
@@ -87,7 +84,6 @@
 
         try {
             storedApi = localStorage.getItem('cf_notes_api') || "";
-            // 【核心修改1】在这里加了 trim()，读取时自动去空格
             ADMIN_KEY = (localStorage.getItem('cf_notes_key') || "").trim();
         } catch(e) { console.warn("Storage restricted"); }
 
@@ -99,7 +95,7 @@
         let API_URL = storedApi;
         const app = document.getElementById('app');
 
-        // Cryptography
+        // --- Crypto Logic ---
         async function getK(pw, salt) {
             const enc = new TextEncoder();
             const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(pw), { name: "PBKDF2" }, false, ["deriveKey"]);
@@ -128,7 +124,7 @@
             } catch (e) { return null; }
         }
 
-        // Initialization
+        // --- Core Application ---
         function init() {
             shareId ? renderShareView() : renderMainView();
             let ticking = false;
@@ -150,7 +146,6 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        // Views
         function renderMainView() {
             app.innerHTML = `
             <div class="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 w-full">
@@ -174,7 +169,7 @@
                     
                     <div id="writeModeArea" class="hidden-mode space-y-4">
                          <textarea id="noteInput" placeholder="在此输入需要加密的内容..." class="w-full bg-white/60 border border-white p-4 h-36 rounded-xl outline-none input-ios resize-none text-slate-800 leading-relaxed placeholder:text-slate-400 transition-colors focus:bg-white focus:ring-2 focus:ring-blue-500/10"></textarea>
-                        <div class="grid grid-cols-2 gap-3">
+                         <div class="grid grid-cols-2 gap-3">
                             <button onclick="doSave()" class="bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-lg shadow-slate-900/10 btn-ios flex items-center justify-center gap-2 active:scale-95">
                                 <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                 <span>加密存储</span>
@@ -187,7 +182,7 @@
                     </div>
 
                     <div id="readModeArea" class="mode-section pt-2">
-                        <button onclick="loadList()" id="decryptBtn" class="w-full bg-blue-500/10 text-blue-600 border border-blue-100 py-4 rounded-xl font-bold text-sm btn-ios flex items-center justify-center gap-2 active:bg-blue-100 active:scale-95">
+                       <button onclick="loadList()" id="decryptBtn" class="w-full bg-blue-500/10 text-blue-600 border border-blue-100 py-4 rounded-xl font-bold text-sm btn-ios flex items-center justify-center gap-2 active:bg-blue-100 active:scale-95">
                             <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>
                             <span>解密查看笔记</span>
                         </button>
@@ -195,7 +190,7 @@
                 </main>
 
                 <section class="space-y-4 pt-2 w-full">
-                   <div id="searchBar" class="hidden px-1 animate-in slide-in-from-top-2 duration-300 w-full">
+                    <div id="searchBar" class="hidden px-1 animate-in slide-in-from-top-2 duration-300 w-full">
                        <div class="relative group">
                             <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
                                 <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -208,18 +203,16 @@
                     </div>
 
                     <div id="notesList" class="grid grid-cols-1 gap-4 pb-2 items-start transition-all duration-500 ease-in-out">
-                          <div class="col-span-full text-center py-12">
+                        <div class="col-span-full text-center py-12">
                             <div class="inline-block p-4 mb-2 text-slate-300">
                                 <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M17.5 19c0-1.7-1.3-3-3-3h-5c-1.7 0-3 1.3-3 3"></path><path d="M17.5 19h-11"></path><path d="M6.5 16A6.5 6.5 0 0 1 11 5c2.7 0 5 1.6 6 4a4.5 4.5 0 0 1 .5 10"></path></svg>
                             </div>
                             <p class="text-slate-400 text-sm">输入主密钥后点击解密<br>查看您的安全笔记</p>
                         </div>
                     </div>
-                    
                     <div id="loadMoreContainer" class="py-4 flex justify-center w-full hidden"></div>
                 </section>
-            </div>
-        `;
+            </div>`;
         }
 
         function renderShareView() {
@@ -237,11 +230,10 @@
                     <button id="unlockBtn" onclick="doUnlockShare()" class="w-full bg-gradient-to-r from-rose-500 to-red-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-rose-500/20 btn-ios text-lg active:scale-95">立即解密</button>
                     <div id="shareResult" class="mt-6 text-left p-5 bg-slate-50 rounded-2xl hidden whitespace-pre-wrap text-sm leading-relaxed border border-slate-200 text-slate-700 font-mono break-words"></div>
                 </div>
-            </div>
-        `;
+            </div>`;
         }
 
-        // Logic
+        // --- Interaction Logic ---
         function toggleWriteMode() {
             const writeArea = document.getElementById('writeModeArea');
             const readArea = document.getElementById('readModeArea');
@@ -270,15 +262,13 @@
         function saveSettings() {
             let newApi = document.getElementById('setApi').value.trim();
             if (newApi.endsWith('/')) newApi = newApi.slice(0, -1);
-            
             try {
                 localStorage.setItem('cf_notes_api', newApi);
-                localStorage.setItem('cf_notes_key', document.getElementById('setKey').value.trim()); // 保存时也 trim
+                localStorage.setItem('cf_notes_key', document.getElementById('setKey').value.trim()); 
             } catch(e) { alert("设置无法保存（隐私模式限制）"); }
             location.reload();
         }
 
-        // 【核心修改2】完整的 doSave 函数，支持显示 JSON 错误
         async function doSave() {
             const text = document.getElementById('noteInput').value;
             const pw = document.getElementById('mainPw').value;
@@ -290,17 +280,14 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': ADMIN_KEY },
                     body: JSON.stringify({ content: cipher })
                 });
-
                 if (res.ok) { 
                     alert("✅ 已加密存入");
                     document.getElementById('noteInput').value = ""; 
                     toggleWriteMode(); 
                     loadList();
                 } else { 
-                    // 读取后端返回的 JSON
                     const errData = await res.json().catch(() => ({}));
-                    // 弹窗显示，包含 error 和 details
-                    alert(`❌ 保存失败: ${errData.error || res.statusText}\n\n🔍 调试信息: ${errData.details || "无详情"}`);
+                    alert("❌ 保存失败：" + (errData.error || "请检查 Key 或网络"));
                 }
             } catch (e) { alert("❌ 网络异常：" + e.message); }
         }
@@ -322,11 +309,11 @@
             listDiv.className = "grid grid-cols-1 gap-4 pb-2 items-start";
             listDiv.innerHTML = '<div class="col-span-full text-center py-8 text-slate-400 text-sm animate-pulse">正在下载数据...</div>';
             loadMoreContainer.classList.add('hidden');
+            
             try {
                 const res = await fetch(`${API_URL}/api/list`, { headers: { 'Authorization': ADMIN_KEY } });
                 const notes = await res.json(); 
-                
-                if (notes.error) throw new Error(notes.error + (notes.details ? ` (${notes.details})` : ""));
+                if (notes.error) throw new Error(notes.error);
                 
                 listDiv.innerHTML = '<div class="col-span-full text-center py-8 text-slate-400 text-sm animate-pulse">正在解密...</div>';
                 _PRIVATE_MEM_CACHE = [];
@@ -342,9 +329,7 @@
 
                 renderNotesToDom(_PRIVATE_MEM_CACHE.slice(0, _PAGE_SIZE));
                 _RENDERED_COUNT = _PAGE_SIZE;
-
-                if (_PRIVATE_MEM_CACHE.length > 0) searchBar.classList.remove('hidden');
-                else searchBar.classList.add('hidden');
+                searchBar.classList.toggle('hidden', _PRIVATE_MEM_CACHE.length === 0);
             } catch (e) { 
                 console.error(e);
                 listDiv.innerHTML = '<div class="col-span-full text-center py-8 text-red-400 text-sm">连接失败：' + escapeHtml(e.message) + '</div>';
@@ -360,14 +345,15 @@
             
             if (!append) listDiv.innerHTML = "";
             loadMoreContainer.innerHTML = "";
+            
             if (notesArray.length === 0 && !append) {
                 listDiv.innerHTML = `
-                        <div class="col-span-full text-center py-12 space-y-2">
-                            <div class="text-3xl opacity-30">
-                                <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" class="mx-auto"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
-                            </div>
-                            <p class="text-slate-500 text-sm font-bold">无匹配数据</p>
-                        </div>`;
+                    <div class="col-span-full text-center py-12 space-y-2">
+                        <div class="text-3xl opacity-30">
+                            <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" class="mx-auto"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+                        </div>
+                        <p class="text-slate-500 text-sm font-bold">无匹配数据</p>
+                    </div>`;
                 loadMoreContainer.classList.add('hidden');
                 return;
             }
@@ -388,8 +374,7 @@
                     <div class="flex justify-between items-center opacity-60">
                         <span class="text-[10px] font-bold bg-slate-100 px-2 py-0.5 rounded text-slate-500">#${safeId}</span>
                         <span class="text-[10px] font-medium text-slate-400">${safeDate}</span>
-                    </div>
-                `;
+                    </div>`;
                 
                 const contentWrapper = document.createElement('div');
                 contentWrapper.className = "flex-1";
@@ -410,21 +395,16 @@
                 const footerHtml = `
                     <div class="pt-3 border-t border-slate-50 flex items-center justify-between gap-2 mt-auto">
                         <button onclick="doShareCopy(${safeId})" class="flex-1 py-2.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold active:bg-rose-100 active:scale-95 btn-ios transition flex items-center justify-center gap-1.5" title="阅后即焚">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.048 8.287 8.287 0 0 0 9 9.6a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48z"></path>
-                            </svg>
-                            阅后即焚
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.048 8.287 8.287 0 0 0 9 9.6a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48z"></path></svg> 阅后即焚
                         </button>
                         <button class="export-btn flex-1 py-2.5 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold active:bg-emerald-100 active:scale-95 btn-ios transition flex items-center justify-center gap-1.5">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                            备份
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> 备份
                         </button>
                         <button onclick="doDelete(${safeId})" class="flex-1 py-2.5 bg-slate-100 text-slate-500 rounded-lg text-xs font-bold active:bg-slate-200 active:scale-95 btn-ios transition flex items-center justify-center gap-1.5">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                            删除
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> 删除
                         </button>
-                    </div>
-                `;
+                    </div>`;
+                
                 card.innerHTML = headerHtml;
                 card.appendChild(contentWrapper);
                 card.insertAdjacentHTML('beforeend', footerHtml);
@@ -435,7 +415,6 @@
 
             const isSearchMode = document.getElementById('searchInput').value.length > 0;
             const currentDisplayedCount = append ? (_RENDERED_COUNT) : notesArray.length;
-            
             if (!isSearchMode && currentDisplayedCount < _PRIVATE_MEM_CACHE.length) {
                 const moreBtn = document.createElement('button');
                 moreBtn.id = 'loadMoreBtn';
@@ -462,8 +441,7 @@
             const clearBtn = document.getElementById('clearSearchBtn');
             const query = input.value.toLowerCase();
             
-            if (query.length > 0) clearBtn.classList.remove('hidden');
-            else clearBtn.classList.add('hidden');
+            clearBtn.classList.toggle('hidden', query.length === 0);
             const filtered = _PRIVATE_MEM_CACHE.filter(n => n.clearText.toLowerCase().includes(query));
             renderNotesToDom(filtered);
         }
@@ -551,7 +529,7 @@
         async function doAI() {
             const text = document.getElementById('noteInput').value;
             if (!text) return alert("笔记为空");
-            if(!confirm("⚠️ 隐私警告：\nAI 总结需将前 1000 字符【明文】发送至服务器。是否继续？")) return;
+            if(!confirm("⚠️ 隐私警告：\nAI总结需将内容【明文】发送至服务器。是否继续？")) return;
 
             const btn = event.target.closest('button'); 
             const oldHtml = btn.innerHTML;
